@@ -2,5 +2,7 @@ streamlit
 yfinance
 pandas
 plotly
-google-generativeai
+ollama
 python-dotenv
+google-generativeai
+
