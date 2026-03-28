@@ -9,4 +9,3 @@ convex
 httpx
 fastapi
 uvicorn
-EOF
