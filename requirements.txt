@@ -122,7 +122,6 @@ pydeck==0.9.1
 Pygments==2.19.2
 PyJWT==2.7.0
 pyparsing==3.1.1
-pyte==0.8.25
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-json-logger==4.0.0
