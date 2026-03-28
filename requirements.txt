@@ -120,11 +120,9 @@ pydantic-settings==2.13.1
 pydantic_core==2.41.5
 pydeck==0.9.1
 Pygments==2.19.2
-PyGObject==3.48.2
 PyJWT==2.7.0
 pyparsing==3.1.1
-pyte==0.8.2
-python-apt==2.7.7+ubuntu5
+pyte==0.8.25
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-json-logger==4.0.0
