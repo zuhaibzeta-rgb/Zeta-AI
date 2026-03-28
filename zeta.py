@@ -21,10 +21,25 @@ try:
 except Exception:
     ollama = None
 
+# --- ADDED: EXA + Convex imports (after line 20) ---
+try:
+    from exa_py import Exa
+except Exception:
+    Exa = None
+
+try:
+    from convex import ConvexClient
+except Exception:
+    ConvexClient = None
+# --- END ADDED ---
+
 # =========================================================
 # ZETA.AI | GLOBAL COMMAND TERMINAL
+#
 # Expanded edition with deeper modular analytics, controls,
+#
 # scenario tools, portfolio intelligence, and multi-source tabs.
+#
 # =========================================================
 
 load_dotenv()
@@ -53,27 +68,12 @@ st.markdown(
         color: #888;
     }
     .stTabs [aria-selected="true"] { border-color: #00ff88 !important; color: #00ff88 !important; }
-    .metric-card {
-        background: #111;
-        padding: 15px;
-        border-radius: 8px;
-        border-left: 5px solid #00ff88;
-    }
-    .small-note {
-        color: #8b8b8b;
-        font-size: 0.9rem;
-    }
-    .section-title {
-        font-size: 1.2rem;
-        font-weight: 700;
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
-        color: #00ff88;
-    }
-    .subtle {
-        color: #9e9e9e;
-    }
-</style>""",
+    .metric-card { background: #111; padding: 15px; border-radius: 8px; border-left: 5px solid #00ff88; }
+    .small-note { color: #8b8b8b; font-size: 0.9rem; }
+    .section-title { font-size: 1.2rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: #00ff88; }
+    .subtle { color: #9e9e9e; }
+</style>
+""",
     unsafe_allow_html=True,
 )
 
@@ -99,6 +99,51 @@ BUY_THRESHOLD = 0.35
 SELL_THRESHOLD = -0.35
 NEUTRAL_BAND = 0.15
 
+# --- ADDED: EXA + Convex clients and functions (after line 72) ---
+EXA_API_KEY = os.getenv("EXA_API_KEY", "3b06187a-40e0-474d-8d75-d86668dc0a85")
+CONVEX_URL = os.getenv("CONVEX_URL", "https://accomplished-egret-892.convex.cloud")
+
+exa_client = Exa(api_key=EXA_API_KEY) if Exa is not None else None
+convex_client = ConvexClient(CONVEX_URL) if ConvexClient is not None else None
+
+def exa_search(query, num_results=5):
+    if exa_client is None:
+        return []
+    try:
+        results = exa_client.search_and_contents(
+            query,
+            num_results=num_results,
+            use_autoprompt=True,
+            text=True
+        )
+        return [
+            {
+                "title": getattr(r, "title", ""),
+                "url": getattr(r, "url", ""),
+                "text": (getattr(r, "text", "") or "")[:400]
+            }
+            for r in results.results
+        ]
+    except Exception as e:
+        st.warning(f"Exa error: {e}")
+        return []
+
+def convex_save_search(query, results):
+    if convex_client is None:
+        return
+    try:
+        convex_client.mutation(
+            "searches:save",
+            {
+                "query": query,
+                "results": json.dumps(results),
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+    except Exception:
+        pass
+# --- END ADDED ---
+
 # =========================================================
 # AGENTS / TICKERS / SECTORS
 # =========================================================
@@ -123,17 +168,36 @@ TICKERS: List[str] = [
 ]
 
 SECTOR_MAP: Dict[str, str] = {
-    "AAPL": "Technology", "MSFT": "Technology", "NVDA": "Semiconductors",
-    "TSLA": "Consumer Discretionary", "AMZN": "Consumer Discretionary",
-    "GOOGL": "Communication Services", "META": "Communication Services",
-    "BRK-B": "Financials", "LLY": "Healthcare", "AVGO": "Semiconductors",
-    "V": "Financials", "MA": "Financials", "JPM": "Financials",
-    "UNH": "Healthcare", "COST": "Consumer Staples", "HD": "Consumer Discretionary",
-    "PG": "Consumer Staples", "NFLX": "Communication Services", "AMD": "Semiconductors",
-    "ADBE": "Technology", "CRM": "Technology", "WMT": "Consumer Staples",
-    "BAC": "Financials", "ORCL": "Technology", "QCOM": "Semiconductors",
-    "TXN": "Semiconductors", "TMUS": "Communication Services", "INTU": "Technology",
-    "AMAT": "Semiconductors", "ISRG": "Healthcare",
+    "AAPL": "Technology",
+    "MSFT": "Technology",
+    "NVDA": "Semiconductors",
+    "TSLA": "Consumer Discretionary",
+    "AMZN": "Consumer Discretionary",
+    "GOOGL": "Communication Services",
+    "META": "Communication Services",
+    "BRK-B": "Financials",
+    "LLY": "Healthcare",
+    "AVGO": "Semiconductors",
+    "V": "Financials",
+    "MA": "Financials",
+    "JPM": "Financials",
+    "UNH": "Healthcare",
+    "COST": "Consumer Staples",
+    "HD": "Consumer Discretionary",
+    "PG": "Consumer Staples",
+    "NFLX": "Communication Services",
+    "AMD": "Semiconductors",
+    "ADBE": "Technology",
+    "CRM": "Technology",
+    "WMT": "Consumer Staples",
+    "BAC": "Financials",
+    "ORCL": "Technology",
+    "QCOM": "Semiconductors",
+    "TXN": "Semiconductors",
+    "TMUS": "Communication Services",
+    "INTU": "Technology",
+    "AMAT": "Semiconductors",
+    "ISRG": "Healthcare",
 }
 
 # =========================================================
@@ -167,20 +231,16 @@ def safe_float(value: Any, default: float = 0.0) -> float:
     except Exception:
         return default
 
-
 def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
-
 def pct_change_series(series: pd.Series) -> pd.Series:
     return series.pct_change().replace([float("inf"), float("-inf")], pd.NA).fillna(0)
-
 
 def rolling_zscore(series: pd.Series, window: int = 20) -> pd.Series:
     mean = series.rolling(window).mean()
     std = series.rolling(window).std().replace(0, pd.NA)
     return ((series - mean) / std).fillna(0)
-
 
 def normalize_signal(text: str) -> float:
     text = (text or "").lower()
@@ -200,14 +260,12 @@ def normalize_signal(text: str) -> float:
         return -0.2
     return 0.0
 
-
 def signal_label(score: float) -> str:
     if score >= BUY_THRESHOLD:
         return "BUY"
     if score <= SELL_THRESHOLD:
         return "SELL"
     return "HOLD"
-
 
 def risk_bucket(value: float) -> str:
     if value >= 80:
@@ -220,12 +278,10 @@ def risk_bucket(value: float) -> str:
         return "Low"
     return "Very Low"
 
-
 def ensure_dir_path(filepath: str) -> None:
     directory = os.path.dirname(filepath)
     if directory:
         os.makedirs(directory, exist_ok=True)
-
 
 def read_csv_or_sample(
     path: str, sample_rows: List[Dict[str, Any]], expected_columns: List[str]
@@ -236,7 +292,6 @@ def read_csv_or_sample(
         except Exception:
             pass
     return pd.DataFrame(sample_rows, columns=expected_columns)
-
 
 def append_row_csv(path: str, row: Dict[str, Any], columns: List[str]) -> None:
     ensure_dir_path(path)
@@ -251,12 +306,10 @@ def append_row_csv(path: str, row: Dict[str, Any], columns: List[str]) -> None:
         df_all = df_new
     df_all.to_csv(path, index=False)
 
-
 def dataframe_to_download_link(df: pd.DataFrame, filename: str) -> str:
     csv = df.to_csv(index=False)
     b64 = csv.encode("utf-8").hex()
     return f"data:text/csv;charset=utf-8,{b64}"
-
 
 def safe_first_ticker(tickers: List[str]) -> str:
     return tickers[0] if tickers else "AAPL"
@@ -280,12 +333,10 @@ def get_live_metrics(ticker: str) -> Optional[Dict[str, Any]]:
         momentum = float((df["Close"].iloc[-1] / df["Close"].iloc[-21]) - 1) if len(df) > 21 else 0.0
         returns = pct_change_series(df["Close"])
         zscore = float(rolling_zscore(df["Close"], 20).iloc[-1]) if len(df) > 20 else 0.0
-
         try:
             info = stock.info or {}
         except Exception:
             info = {}
-
         return {
             "price": round(close, 2),
             "profit_score": profit_score,
@@ -302,7 +353,6 @@ def get_live_metrics(ticker: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
-
 @st.cache_data(ttl=120)
 def fetch_history(ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
     try:
@@ -316,7 +366,6 @@ def fetch_history(ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
     except Exception:
         return None
 
-
 @st.cache_data(ttl=120)
 def fetch_news() -> pd.DataFrame:
     sample_rows = [
@@ -326,7 +375,6 @@ def fetch_news() -> pd.DataFrame:
         {"date": "2026-03-20", "source": "desk", "title": "Liquidity regime scan", "topic": "liquidity", "sentiment": "neutral"},
     ]
     return read_csv_or_sample(NEWS_FILE, sample_rows, ["date", "source", "title", "topic", "sentiment"])
-
 
 @st.cache_data(ttl=120)
 def fetch_alt_data() -> pd.DataFrame:
@@ -341,7 +389,6 @@ def fetch_alt_data() -> pd.DataFrame:
     ]
     return read_csv_or_sample(ALT_DATA_FILE, sample_rows, ["date", "source", "asset", "signal", "value"])
 
-
 @st.cache_data(ttl=120)
 def fetch_backtest() -> pd.DataFrame:
     sample_rows = [
@@ -351,17 +398,14 @@ def fetch_backtest() -> pd.DataFrame:
     ]
     return read_csv_or_sample(BACKTEST_FILE, sample_rows, ["date", "ticker", "strategy_return", "benchmark_return", "signal"])
 
-
 @st.cache_data(ttl=120)
 def fetch_portfolio() -> pd.DataFrame:
     return read_csv_or_sample(PORTFOLIO_FILE, [], ["ticker", "side", "allocation", "price", "note", "timestamp"])
-
 
 @st.cache_data(ttl=120)
 def fetch_watchlist() -> pd.DataFrame:
     sample_rows = [{"ticker": "AAPL"}, {"ticker": "MSFT"}, {"ticker": "NVDA"}]
     return read_csv_or_sample(WATCHLIST_FILE, sample_rows, ["ticker"])
-
 
 @st.cache_data(ttl=120)
 def fetch_alerts() -> pd.DataFrame:
@@ -371,14 +415,12 @@ def fetch_alerts() -> pd.DataFrame:
     ]
     return read_csv_or_sample(ALERTS_FILE, sample_rows, ["ticker", "threshold", "kind"])
 
-
 @st.cache_data(ttl=120)
 def fetch_notes() -> pd.DataFrame:
     sample_rows = [
         {"date": "2026-03-20", "ticker": "AAPL", "note": "Core moat remains strong."},
     ]
     return read_csv_or_sample(NOTES_FILE, sample_rows, ["date", "ticker", "note"])
-
 
 @st.cache_data(ttl=120)
 def fetch_scenarios() -> pd.DataFrame:
@@ -389,7 +431,6 @@ def fetch_scenarios() -> pd.DataFrame:
         {"name": "Risk-On", "shock_pct": 12, "rate_shock": -0.4, "demand_shock": 0.5, "liquidity_shock": 0.6},
     ]
     return read_csv_or_sample(SCENARIOS_FILE, sample_rows, ["name", "shock_pct", "rate_shock", "demand_shock", "liquidity_shock"])
-
 
 @st.cache_data(ttl=120)
 def fetch_journal() -> pd.DataFrame:
@@ -415,7 +456,6 @@ def ollama_chat(prompt: str) -> str:
     except Exception as e:
         return f"JUDGE OFFLINE: {e}"
 
-
 def run_agent_brain(
     name: str,
     persona: str,
@@ -435,7 +475,6 @@ def run_agent_brain(
     signal = normalize_signal(thought)
     return {"agent": name, "thought": thought, "signal": signal}
 
-
 def run_senior_partner_judge(ticker: str, reports: List[Dict[str, Any]], zeta_signal: float) -> str:
     summary = "\n".join([f"{r['agent']}: {r['thought']}" for r in reports])
     prompt = (
@@ -447,257 +486,14 @@ def run_senior_partner_judge(ticker: str, reports: List[Dict[str, Any]], zeta_si
     return ollama_chat(prompt)
 
 # =========================================================
-# BAYESIAN AGGREGATION SYSTEM
-# =========================================================
-#
-# Theory: Instead of simple averaging, we treat each investor as a
-# probabilistic model M_i with a reliability matrix R_i[stated][true].
-# We apply Bayes' rule sequentially across all agent opinions:
-#
-#   P(A | o_1, ..., o_n) ∝ P(A) · ∏ P(o_i | A)
-#
-# Where P(o_i | A) is the likelihood that investor i says o_i when
-# the true action is A — sourced from their historical accuracy matrix.
-#
-# Conflict detection via Dempster-Shafer:
-#   K = Σ m1(A) · m2(B)  for A ∩ B = ∅
-# High K → deep disagreement → flag as HIGH CONFLICT, avoid trading.
-#
-# Bayesian Model Averaging:
-#   P(A | data) = Σ P(A | M_i) · P(M_i | data)
-# P(M_i | data) updates over time based on historical accuracy.
-# =========================================================
-
-# Reliability matrix: R[investor][stated_action][true_action] = probability
-# Calibrated priors based on each investor's known philosophy and accuracy
-INVESTOR_RELIABILITY: Dict[str, Dict[str, Dict[str, float]]] = {
-    "Warren Buffett": {
-        "BUY":  {"BUY": 0.78, "HOLD": 0.15, "SELL": 0.07},
-        "HOLD": {"BUY": 0.20, "HOLD": 0.65, "SELL": 0.15},
-        "SELL": {"BUY": 0.05, "HOLD": 0.20, "SELL": 0.75},
-    },
-    "Jim Simons": {
-        "BUY":  {"BUY": 0.72, "HOLD": 0.18, "SELL": 0.10},
-        "HOLD": {"BUY": 0.22, "HOLD": 0.60, "SELL": 0.18},
-        "SELL": {"BUY": 0.08, "HOLD": 0.22, "SELL": 0.70},
-    },
-    "George Soros": {
-        "BUY":  {"BUY": 0.68, "HOLD": 0.20, "SELL": 0.12},
-        "HOLD": {"BUY": 0.25, "HOLD": 0.55, "SELL": 0.20},
-        "SELL": {"BUY": 0.10, "HOLD": 0.25, "SELL": 0.65},
-    },
-    "Ken Griffin": {
-        "BUY":  {"BUY": 0.74, "HOLD": 0.16, "SELL": 0.10},
-        "HOLD": {"BUY": 0.21, "HOLD": 0.62, "SELL": 0.17},
-        "SELL": {"BUY": 0.07, "HOLD": 0.21, "SELL": 0.72},
-    },
-    "Carl Icahn": {
-        "BUY":  {"BUY": 0.70, "HOLD": 0.18, "SELL": 0.12},
-        "HOLD": {"BUY": 0.23, "HOLD": 0.57, "SELL": 0.20},
-        "SELL": {"BUY": 0.09, "HOLD": 0.23, "SELL": 0.68},
-    },
-    "Ray Dalio": {
-        "BUY":  {"BUY": 0.73, "HOLD": 0.17, "SELL": 0.10},
-        "HOLD": {"BUY": 0.20, "HOLD": 0.63, "SELL": 0.17},
-        "SELL": {"BUY": 0.07, "HOLD": 0.20, "SELL": 0.73},
-    },
-    "Peter Lynch": {
-        "BUY":  {"BUY": 0.76, "HOLD": 0.15, "SELL": 0.09},
-        "HOLD": {"BUY": 0.21, "HOLD": 0.64, "SELL": 0.15},
-        "SELL": {"BUY": 0.06, "HOLD": 0.21, "SELL": 0.73},
-    },
-    "Stan Druckenmiller": {
-        "BUY":  {"BUY": 0.75, "HOLD": 0.16, "SELL": 0.09},
-        "HOLD": {"BUY": 0.20, "HOLD": 0.63, "SELL": 0.17},
-        "SELL": {"BUY": 0.07, "HOLD": 0.20, "SELL": 0.73},
-    },
-    "John Maynard Keynes": {
-        "BUY":  {"BUY": 0.67, "HOLD": 0.21, "SELL": 0.12},
-        "HOLD": {"BUY": 0.26, "HOLD": 0.54, "SELL": 0.20},
-        "SELL": {"BUY": 0.11, "HOLD": 0.26, "SELL": 0.63},
-    },
-    "Benjamin Graham": {
-        "BUY":  {"BUY": 0.80, "HOLD": 0.13, "SELL": 0.07},
-        "HOLD": {"BUY": 0.18, "HOLD": 0.67, "SELL": 0.15},
-        "SELL": {"BUY": 0.05, "HOLD": 0.18, "SELL": 0.77},
-    },
-}
-
-DEFAULT_RELIABILITY: Dict[str, Dict[str, float]] = {
-    "BUY":  {"BUY": 0.70, "HOLD": 0.18, "SELL": 0.12},
-    "HOLD": {"BUY": 0.22, "HOLD": 0.58, "SELL": 0.20},
-    "SELL": {"BUY": 0.09, "HOLD": 0.22, "SELL": 0.69},
-}
-
-ACTIONS = ["BUY", "HOLD", "SELL"]
-
-
-def signal_to_action(signal: float) -> str:
-    """Convert continuous signal score to discrete action label."""
-    if signal >= BUY_THRESHOLD:
-        return "BUY"
-    if signal <= SELL_THRESHOLD:
-        return "SELL"
-    return "HOLD"
-
-
-def bayesian_aggregate(reports: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Bayesian Model Averaging across all agents.
-
-    Sequential Bayes update:
-        P(A | o1..on) ∝ P(A) · ∏ P(oi | A)
-
-    Dempster-Shafer conflict detection:
-        K = Σ m1(A) · m2(B)  for disjoint A, B
-
-    Returns posterior distribution, MAP action, confidence,
-    conflict score, per-agent weights, and scalar Bayesian signal.
-    """
-    if not reports:
-        return {
-            "posterior": {"BUY": 1/3, "HOLD": 1/3, "SELL": 1/3},
-            "action": "HOLD",
-            "confidence": 0.0,
-            "conflict_score": 0.0,
-            "conflict_flag": False,
-            "agent_weights": {},
-            "bayesian_signal": 0.0,
-        }
-
-    # Uniform prior P(A) = 1/3
-    posterior = {a: 1.0 / 3.0 for a in ACTIONS}
-
-    # Sequential Bayesian update
-    for report in reports:
-        agent_name = report.get("agent", "")
-        stated_action = signal_to_action(report.get("signal", 0.0))
-        reliability = INVESTOR_RELIABILITY.get(agent_name, DEFAULT_RELIABILITY)
-        for action in ACTIONS:
-            likelihood = reliability.get(stated_action, {}).get(action, 1.0 / 3.0)
-            posterior[action] *= likelihood
-
-    # Normalize
-    total = sum(posterior.values())
-    if total > 0:
-        posterior = {a: v / total for a, v in posterior.items()}
-    else:
-        posterior = {a: 1.0 / 3.0 for a in ACTIONS}
-
-    # MAP decision
-    best_action = max(posterior, key=posterior.get)
-    confidence = posterior[best_action]
-
-    # Dempster-Shafer conflict detection
-    conflict_scores = []
-    agent_actions = [signal_to_action(r.get("signal", 0.0)) for r in reports]
-    for i in range(len(agent_actions)):
-        for j in range(i + 1, len(agent_actions)):
-            a1, a2 = agent_actions[i], agent_actions[j]
-            if (a1 == "BUY" and a2 == "SELL") or (a1 == "SELL" and a2 == "BUY"):
-                r1 = INVESTOR_RELIABILITY.get(reports[i].get("agent", ""), DEFAULT_RELIABILITY)
-                r2 = INVESTOR_RELIABILITY.get(reports[j].get("agent", ""), DEFAULT_RELIABILITY)
-                k = r1.get(a1, {}).get(a1, 0.7) * r2.get(a2, {}).get(a2, 0.7)
-                conflict_scores.append(k)
-
-    conflict_score = float(sum(conflict_scores) / max(len(conflict_scores), 1)) if conflict_scores else 0.0
-    conflict_flag = conflict_score > 0.35
-
-    # Per-agent reliability weights for the MAP action
-    agent_weights = {}
-    for report in reports:
-        agent_name = report.get("agent", "")
-        stated = signal_to_action(report.get("signal", 0.0))
-        reliability = INVESTOR_RELIABILITY.get(agent_name, DEFAULT_RELIABILITY)
-        w = reliability.get(stated, {}).get(best_action, 1.0 / 3.0)
-        agent_weights[agent_name] = round(w, 4)
-
-    # Scalar signal in [-1, 1]: P(BUY) - P(SELL)
-    bayesian_signal = round(posterior["BUY"] - posterior["SELL"], 4)
-
-    return {
-        "posterior": {k: round(v, 4) for k, v in posterior.items()},
-        "action": best_action,
-        "confidence": round(confidence, 4),
-        "conflict_score": round(conflict_score, 4),
-        "conflict_flag": conflict_flag,
-        "agent_weights": agent_weights,
-        "bayesian_signal": bayesian_signal,
-    }
-
-
-def render_bayesian_results(bayes: Dict[str, Any]) -> None:
-    """Render the Bayesian aggregation results in Streamlit."""
-    st.markdown("### 🧮 Bayesian Aggregation Results")
-
-    bcols = st.columns(4)
-    bcols[0].metric("P(BUY)", f"{bayes['posterior']['BUY']:.1%}")
-    bcols[1].metric("P(HOLD)", f"{bayes['posterior']['HOLD']:.1%}")
-    bcols[2].metric("P(SELL)", f"{bayes['posterior']['SELL']:.1%}")
-    bcols[3].metric("Bayesian Signal", f"{bayes['bayesian_signal']:+.3f}")
-
-    bcols2 = st.columns(3)
-    bcols2[0].metric("MAP Decision", bayes["action"])
-    bcols2[1].metric("Confidence", f"{bayes['confidence']:.1%}")
-    bcols2[2].metric(
-        "Conflict Score (D-S K)",
-        f"{bayes['conflict_score']:.3f}",
-        delta="⚠️ HIGH CONFLICT — Avoid" if bayes["conflict_flag"] else "✅ Low Conflict",
-        delta_color="inverse" if bayes["conflict_flag"] else "normal",
-    )
-
-    if bayes["conflict_flag"]:
-        st.warning(
-            "⚠️ **Dempster-Shafer Conflict Detected** — Investors are in deep disagreement. "
-            "The Bayesian posterior is unreliable. Consider avoiding this trade until consensus forms."
-        )
-
-    post_df = pd.DataFrame(
-        [{"Action": k, "Posterior Probability": v} for k, v in bayes["posterior"].items()]
-    )
-    fig_post = px.bar(
-        post_df,
-        x="Action",
-        y="Posterior Probability",
-        color="Action",
-        color_discrete_map={"BUY": "#00ff88", "HOLD": "#ffdd00", "SELL": "#ff4444"},
-        title="Bayesian Posterior Distribution P(Action | All Opinions)",
-    )
-    fig_post.update_layout(template="plotly_dark", height=350, showlegend=False)
-    st.plotly_chart(fig_post, use_container_width=True)
-
-    if bayes["agent_weights"]:
-        weights_df = pd.DataFrame(
-            [{"Agent": k, "Reliability Weight": v} for k, v in bayes["agent_weights"].items()]
-        ).sort_values("Reliability Weight", ascending=False)
-        fig_w = px.bar(
-            weights_df,
-            x="Agent",
-            y="Reliability Weight",
-            title="Per-Agent Reliability Weight (for MAP action)",
-            color="Reliability Weight",
-            color_continuous_scale="Viridis",
-        )
-        fig_w.update_layout(template="plotly_dark", height=350)
-        st.plotly_chart(fig_w, use_container_width=True)
-
-    st.caption(
-        "Bayesian aggregation: P(A|o₁…oₙ) ∝ P(A)·∏P(oᵢ|A) — "
-        "each investor's opinion is weighted by their historical reliability matrix. "
-        "Conflict score uses Dempster-Shafer theory: K = Σ m₁(A)·m₂(B) for disjoint A,B."
-    )
-
-# =========================================================
 # ANALYTICS CORE
 # =========================================================
 
 def calculate_zeta_signal(reports: List[Dict[str, Any]]) -> float:
-    """Legacy simple average — kept for reference display."""
     if not reports:
         return 0.0
     vals = [r.get("signal", 0.0) for r in reports]
     return float(round(sum(vals) / len(vals), 3))
-
 
 def build_candlestick_figure(hist: pd.DataFrame, ticker: str) -> go.Figure:
     hist = hist.copy()
@@ -707,22 +503,59 @@ def build_candlestick_figure(hist: pd.DataFrame, ticker: str) -> go.Figure:
     hist["EMA26"] = hist["Close"].ewm(span=26, adjust=False).mean()
 
     fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=hist["Date"], open=hist["Open"], high=hist["High"],
-        low=hist["Low"], close=hist["Close"], name=f"{ticker} Candles",
-    ))
-    fig.add_trace(go.Scatter(x=hist["Date"], y=hist["YellowLine"], mode="lines",
-        name="Yellow Line (20D MA)", line=dict(color="yellow", width=2)))
-    fig.add_trace(go.Scatter(x=hist["Date"], y=hist["VWAP"], mode="lines",
-        name="VWAP", line=dict(color="#00ff88", width=1.5, dash="dot")))
-    fig.add_trace(go.Scatter(x=hist["Date"], y=hist["EMA12"], mode="lines",
-        name="EMA12", line=dict(color="#66aaff", width=1.2)))
-    fig.add_trace(go.Scatter(x=hist["Date"], y=hist["EMA26"], mode="lines",
-        name="EMA26", line=dict(color="#ff66aa", width=1.2)))
-    fig.update_layout(template="plotly_dark", height=650,
-        margin=dict(l=10, r=10, t=30, b=10), xaxis_rangeslider_visible=False)
+    fig.add_trace(
+        go.Candlestick(
+            x=hist["Date"],
+            open=hist["Open"],
+            high=hist["High"],
+            low=hist["Low"],
+            close=hist["Close"],
+            name=f"{ticker} Candles",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=hist["Date"],
+            y=hist["YellowLine"],
+            mode="lines",
+            name="Yellow Line (20D MA)",
+            line=dict(color="yellow", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=hist["Date"],
+            y=hist["VWAP"],
+            mode="lines",
+            name="VWAP",
+            line=dict(color="#00ff88", width=1.5, dash="dot"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=hist["Date"],
+            y=hist["EMA12"],
+            mode="lines",
+            name="EMA12",
+            line=dict(color="#66aaff", width=1.2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=hist["Date"],
+            y=hist["EMA26"],
+            mode="lines",
+            name="EMA26",
+            line=dict(color="#ff66aa", width=1.2),
+        )
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        height=650,
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis_rangeslider_visible=False,
+    )
     return fig
-
 
 def build_sector_heatmap(market_state: Dict[str, Dict[str, Any]], focus_tickers: List[str]) -> go.Figure:
     labels = ["Market"]
@@ -740,29 +573,40 @@ def build_sector_heatmap(market_state: Dict[str, Dict[str, Any]], focus_tickers:
         colors.append("#00ff88" if d["profit_score"] >= 50 else "#ff4444")
         texts.append(f"{d['profit_score']}%")
         customdata.append(t)
-
-    fig = go.Figure(go.Treemap(
-        labels=labels, parents=parents, values=values,
-        marker=dict(colors=colors), text=texts, textinfo="label+text",
-        customdata=customdata, hovertemplate="%{label}<br>%{text}<extra></extra>",
-    ))
+    fig = go.Figure(
+        go.Treemap(
+            labels=labels,
+            parents=parents,
+            values=values,
+            marker=dict(colors=colors),
+            text=texts,
+            textinfo="label+text",
+            customdata=customdata,
+            hovertemplate="%{label}<br>%{text}<extra></extra>",
+        )
+    )
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0), height=520, template="plotly_dark")
     return fig
-
 
 def build_risk_matrix(market_state: Dict[str, Dict[str, Any]], tickers: List[str]) -> pd.DataFrame:
     rows = []
     for t in tickers:
         d = market_state[t]
-        rows.append({
-            "Ticker": t, "Sector": SECTOR_MAP.get(t, "Other"),
-            "Profitability": d["profit_score"], "Price": d["price"],
-            "PE": d["pe"], "Beta": d["beta"], "Volatility": d["volatility"],
-            "Momentum": d["momentum"], "ZScore": d["zscore"],
-            "RiskScore": round((100 - d["profit_score"]) + abs(d["beta"]) * 10 + d["volatility"] * 100, 2),
-        })
+        rows.append(
+            {
+                "Ticker": t,
+                "Sector": SECTOR_MAP.get(t, "Other"),
+                "Profitability": d["profit_score"],
+                "Price": d["price"],
+                "PE": d["pe"],
+                "Beta": d["beta"],
+                "Volatility": d["volatility"],
+                "Momentum": d["momentum"],
+                "ZScore": d["zscore"],
+                "RiskScore": round((100 - d["profit_score"]) + abs(d["beta"]) * 10 + d["volatility"] * 100, 2),
+            }
+        )
     return pd.DataFrame(rows)
-
 
 def build_correlation_df(tickers: List[str], period: str = "3mo") -> Optional[pd.DataFrame]:
     hist_series = {}
@@ -773,7 +617,6 @@ def build_correlation_df(tickers: List[str], period: str = "3mo") -> Optional[pd
     if not hist_series:
         return None
     return pd.concat(hist_series.values(), axis=1).dropna(how="all").fillna(0)
-
 
 def build_backtest_equity(backtest_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     if backtest_df.empty:
@@ -787,12 +630,10 @@ def build_backtest_equity(backtest_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     bt["benchmark_equity"] = (1 + bt["benchmark_return"].fillna(0)).cumprod()
     return bt
 
-
 def compute_var(returns: pd.Series, alpha: float = 0.05) -> float:
     if returns.empty:
         return 0.0
     return float(returns.quantile(alpha))
-
 
 def compute_max_drawdown(price_series: pd.Series) -> float:
     if price_series.empty:
@@ -801,18 +642,15 @@ def compute_max_drawdown(price_series: pd.Series) -> float:
     dd = (price_series / running_max) - 1
     return float(dd.min())
 
-
 def compute_sharpe(returns: pd.Series) -> float:
     if returns.empty or returns.std() == 0:
         return 0.0
     return float((returns.mean() / returns.std()) * math.sqrt(252))
 
-
 def compute_hit_rate(returns: pd.Series) -> float:
     if returns.empty:
         return 0.0
     return float((returns > 0).mean())
-
 
 def compute_cagr(equity_curve: pd.Series, periods_per_year: int = 252) -> float:
     if equity_curve.empty or len(equity_curve) < 2:
@@ -823,10 +661,12 @@ def compute_cagr(equity_curve: pd.Series, periods_per_year: int = 252) -> float:
     total_return = equity_curve.iloc[-1] / equity_curve.iloc[0]
     return float(total_return ** (1 / years) - 1)
 
-
 def scenario_adjusted_score(
-    base: float, shock_pct: float, rate_shock: float,
-    demand_shock: float, liquidity_shock: float,
+    base: float,
+    shock_pct: float,
+    rate_shock: float,
+    demand_shock: float,
+    liquidity_shock: float,
 ) -> float:
     adj = base
     adj += shock_pct * 0.01
@@ -834,7 +674,6 @@ def scenario_adjusted_score(
     adj += liquidity_shock * 0.3
     adj -= abs(rate_shock) * 0.2
     return float(round(adj, 3))
-
 
 def buy_sell_hold_from_score(score: float) -> str:
     if score > 0.25:
@@ -853,31 +692,45 @@ def save_watchlist(ticker: str) -> None:
     if ticker not in set(current["ticker"].astype(str)):
         append_row_csv(WATCHLIST_FILE, {"ticker": ticker}, ["ticker"])
 
-
 def save_note(ticker: str, title: str, body: str) -> None:
     append_row_csv(
         NOTES_FILE,
-        {"date": datetime.now().date().isoformat(), "ticker": ticker, "note": f"{title}: {body}"},
+        {
+            "date": datetime.now().date().isoformat(),
+            "ticker": ticker,
+            "note": f"{title}: {body}",
+        },
         ["date", "ticker", "note"],
     )
-
 
 def save_journal(ticker: str, title: str, body: str) -> None:
     append_row_csv(
         JOURNAL_FILE,
-        {"date": datetime.now().date().isoformat(), "ticker": ticker, "title": title, "body": body},
+        {
+            "date": datetime.now().date().isoformat(),
+            "ticker": ticker,
+            "title": title,
+            "body": body,
+        },
         ["date", "ticker", "title", "body"],
     )
 
-
 def save_scenario(
-    name: str, shock_pct: float, rate_shock: float,
-    demand_shock: float, liquidity_shock: float,
+    name: str,
+    shock_pct: float,
+    rate_shock: float,
+    demand_shock: float,
+    liquidity_shock: float,
 ) -> None:
     append_row_csv(
         SCENARIOS_FILE,
-        {"name": name, "shock_pct": shock_pct, "rate_shock": rate_shock,
-         "demand_shock": demand_shock, "liquidity_shock": liquidity_shock},
+        {
+            "name": name,
+            "shock_pct": shock_pct,
+            "rate_shock": rate_shock,
+            "demand_shock": demand_shock,
+            "liquidity_shock": liquidity_shock,
+        },
         ["name", "shock_pct", "rate_shock", "demand_shock", "liquidity_shock"],
     )
 
@@ -906,11 +759,29 @@ if st.session_state.selected_ticker not in market_state:
 # TABS
 # =========================================================
 
-(tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9) = st.tabs([
-    "📊 PERFORMANCE", "🌐 GEO-INT", "🧊 3D CUBE", "📚 MICRO + RISK",
-    "🛰️ ALT DATA", "🧪 BACKTEST + CORR", "🗞️ NEWS + FLOW",
-    "⚙️ SIGNAL LAB", "📰 FINANCIAL PRESS",
-])
+(
+    tab1,
+    tab2,
+    tab3,
+    tab4,
+    tab5,
+    tab6,
+    tab7,
+    tab8,
+    tab9,
+) = st.tabs(
+    [
+        "📊 PERFORMANCE",
+        "🌐 GEO-INT",
+        "🧊 3D CUBE",
+        "📚 MICRO + RISK",
+        "🛰️ ALT DATA",
+        "🧪 BACKTEST + CORR",
+        "🗞️ NEWS + FLOW",
+        "⚙️ SIGNAL LAB",
+        "📰 FINANCIAL PRESS",
+    ]
+)
 
 # =========================================================
 # TAB 1: PERFORMANCE
@@ -919,7 +790,6 @@ if st.session_state.selected_ticker not in market_state:
 with tab1:
     st.markdown('<div class="section-title">Global Equity Heatmap</div>', unsafe_allow_html=True)
     st.caption("Select a stock from the dropdown — the chart, debate, trade panel, and risk scores update to match.")
-
     topbar = st.columns([1, 1, 1, 1])
     with topbar[0]:
         universe = st.selectbox("Universe", ["Top 10", "Top 20", "All"], index=0, key="universe_picker")
@@ -937,21 +807,35 @@ with tab1:
         item_list = item_list[:10]
     elif universe == "Top 20":
         item_list = item_list[:20]
-
     focus_tickers = [t for t, _ in item_list]
     fig_heat = build_sector_heatmap(market_state, focus_tickers)
     st.plotly_chart(fig_heat, use_container_width=True)
 
+    # --- ADDED: ZETA Search Section (after line 598) ---
+    st.markdown("### 🔍 Ask ZETA")
+    zeta_query = st.text_input("", placeholder="Ask ZETA anything...", key="zeta_ask_input")
+    if st.button("Search", key="zeta_search_btn"):
+        if zeta_query.strip():
+            with st.spinner("Searching..."):
+                results = exa_search(zeta_query)
+                convex_save_search(zeta_query, results)
+                if results:
+                    for r in results:
+                        st.markdown(f"{r['title']}")
+                        st.write(r["text"])
+                        st.markdown("---")
+                else:
+                    st.warning("No results found.")
+    # --- END ADDED ---
+
     live = market_state[selected]
     hist = fetch_history(selected, period="6mo")
-
     col_a, col_b = st.columns([3, 1])
     with col_a:
         if hist is not None and not hist.empty:
             st.plotly_chart(build_candlestick_figure(hist, selected), use_container_width=True)
         else:
             st.warning("No historical data available for candlestick chart.")
-
     with col_b:
         st.markdown("### Trade Panel")
         st.metric("Ticker", selected)
@@ -963,13 +847,15 @@ with tab1:
         zeta_preview = (live["profit_score"] / 100.0) * 2 - 1
         st.metric("Zeta Bias", f"{zeta_preview:+.2f}")
         st.metric("Suggested Action", mode)
-
         if st.button("Commit Paper Trade", key="commit_trade_btn"):
             append_row_csv(
                 PORTFOLIO_FILE,
                 {
-                    "ticker": selected, "side": mode, "allocation": alloc,
-                    "price": live["price"], "note": "Manual trade from performance tab",
+                    "ticker": selected,
+                    "side": mode,
+                    "allocation": alloc,
+                    "price": live["price"],
+                    "note": "Manual trade from performance tab",
                     "timestamp": datetime.now().isoformat(timespec="seconds"),
                 },
                 ["ticker", "side", "allocation", "price", "note", "timestamp"],
@@ -984,9 +870,15 @@ with tab1:
             with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [
                     executor.submit(
-                        run_agent_brain, n, p, selected,
-                        live["price"], live["profit_score"],
-                        live["beta"], live["volatility"], live["momentum"],
+                        run_agent_brain,
+                        n,
+                        p,
+                        selected,
+                        live["price"],
+                        live["profit_score"],
+                        live["beta"],
+                        live["volatility"],
+                        live["momentum"],
                     )
                     for n, p in AGENTS.items()
                 ]
@@ -994,43 +886,21 @@ with tab1:
                     res = f.result()
                     reports.append(res)
                     st.write(f"✅ {res['agent']} response received.")
-
-            # --- Bayesian Aggregation ---
-            bayes = bayesian_aggregate(reports)
-            zeta_signal = calculate_zeta_signal(reports)  # legacy reference
-            verdict = bayes["action"]
-
-            st.write(
-                f"🧮 Bayesian MAP: **{verdict}** | "
-                f"P(BUY)={bayes['posterior']['BUY']:.1%} | "
-                f"P(HOLD)={bayes['posterior']['HOLD']:.1%} | "
-                f"P(SELL)={bayes['posterior']['SELL']:.1%}"
-            )
-            st.write(f"📊 Legacy Avg Signal: {zeta_signal:+.3f} | Bayesian Signal: {bayes['bayesian_signal']:+.3f}")
-            if bayes["conflict_flag"]:
-                st.warning(f"⚠️ High Dempster-Shafer Conflict (K={bayes['conflict_score']:.3f}) — Investors disagree strongly.")
+            zeta_signal = calculate_zeta_signal(reports)
+            verdict = signal_label(zeta_signal)
+            st.write(f"⚖️ Zeta Signal: {zeta_signal:+.3f} ({verdict})")
             st.write("⚖️ Senior Partner (Llama) is synthesizing verdict...")
-            final_verdict = run_senior_partner_judge(selected, reports, bayes["bayesian_signal"])
+            final_verdict = run_senior_partner_judge(selected, reports, zeta_signal)
             status_box.update(label="Debate Concluded", state="complete")
-
-        st.session_state.last_debate_result = final_verdict
+            st.session_state.last_debate_result = final_verdict
         st.markdown(f"### 🛡️ FINAL SENIOR PARTNER VERDICT: {selected}")
         st.info(final_verdict)
-        st.success(
-            f"Bayesian Signal: {bayes['bayesian_signal']:+.3f} | "
-            f"MAP Action: {verdict} | Confidence: {bayes['confidence']:.1%} | "
-            f"Allocation hint: {alloc}%"
-        )
-
-        render_bayesian_results(bayes)
-
+        st.success(f"Zeta Signal: {zeta_signal:+.3f} | Action: {verdict} | Allocation hint: {alloc}%")
         report_cols = st.columns(2)
         for i, report in enumerate(reports):
             with report_cols[i % 2].expander(f"Agent Log: {report['agent']}"):
                 st.write(report["thought"])
-                st.write(f"Signal score: {report['signal']:+.2f} → {signal_to_action(report['signal'])}")
-                w = bayes["agent_weights"].get(report["agent"], 0.0)
-                st.write(f"Reliability weight: {w:.4f}")
+                st.write(f"Signal score: {report['signal']:+.2f}")
 
     st.markdown("### Quick Metrics")
     metric_cols = st.columns(4)
@@ -1050,7 +920,6 @@ with tab1:
 with tab2:
     st.markdown('<div class="section-title">Geopolitical Intelligence — World Monitor</div>', unsafe_allow_html=True)
     st.caption("Click the button below to open the World Monitor GitHub repo.")
-
     st.markdown(
         '<a href="https://github.com/koala73/worldmonitor" target="_blank"'
         ' style="display:inline-block; padding:14px 32px;'
@@ -1061,24 +930,35 @@ with tab2:
         '</a>',
         unsafe_allow_html=True,
     )
-
     st.markdown("---")
     st.markdown("### Geo Event Categories")
-    geo_categories = pd.DataFrame([
-        {"Layer": "Conflicts", "Status": "Active Watch"},
-        {"Layer": "Bases", "Status": "Stable"},
-        {"Layer": "Hotspots", "Status": "Elevated"},
-        {"Layer": "Nuclear", "Status": "Watch"},
-        {"Layer": "Sanctions", "Status": "Moderate"},
-        {"Layer": "Weather", "Status": "Dynamic"},
-        {"Layer": "Economic", "Status": "Mixed"},
-        {"Layer": "Waterways", "Status": "Flowing"},
-        {"Layer": "Outages", "Status": "Localized"},
-        {"Layer": "Military", "Status": "Active"},
-        {"Layer": "Natural", "Status": "Event Risk"},
-        {"Layer": "Iran Attacks", "Status": "Monitored"},
-    ])
+    geo_categories = pd.DataFrame(
+        [
+            {"Layer": "Conflicts", "Status": "Active Watch"},
+            {"Layer": "Bases", "Status": "Stable"},
+            {"Layer": "Hotspots", "Status": "Elevated"},
+            {"Layer": "Nuclear", "Status": "Watch"},
+            {"Layer": "Sanctions", "Status": "Moderate"},
+            {"Layer": "Weather", "Status": "Dynamic"},
+            {"Layer": "Economic", "Status": "Mixed"},
+            {"Layer": "Waterways", "Status": "Flowing"},
+            {"Layer": "Outages", "Status": "Localized"},
+            {"Layer": "Military", "Status": "Active"},
+            {"Layer": "Natural", "Status": "Event Risk"},
+            {"Layer": "Iran Attacks", "Status": "Monitored"},
+        ]
+    )
     st.dataframe(geo_categories, use_container_width=True)
+    with st.expander("⚙️ Setup — How to run World Monitor locally"):
+        st.code(
+            "git clone https://github.com/koala73/worldmonitor.git\n"
+            "cd worldmonitor\n"
+            "npm install\n"
+            "npm run dev",
+            language="bash",
+        )
+        st.write("• Runs on http://localhost:5173 by default.")
+        st.write("• Keep the npm run dev terminal open while using ZETA.AI.")
 
 # =========================================================
 # TAB 3: 3D CUBE
@@ -1088,31 +968,50 @@ with tab3:
     st.markdown('<div class="section-title">3D Risk-Alpha Hypercube</div>', unsafe_allow_html=True)
     plot_data = []
     for t, d in market_state.items():
-        plot_data.append({
-            "Ticker": t, "Profitability": d["profit_score"], "Price": d["price"],
-            "Mkt_Cap": (d["mkt_cap"] or 0) / 1e9, "Beta": d["beta"],
-            "Volatility": d["volatility"], "Momentum": d["momentum"], "ZScore": d["zscore"],
-        })
-
+        plot_data.append(
+            {
+                "Ticker": t,
+                "Profitability": d["profit_score"],
+                "Price": d["price"],
+                "Mkt_Cap": (d["mkt_cap"] or 0) / 1e9,
+                "Beta": d["beta"],
+                "Volatility": d["volatility"],
+                "Momentum": d["momentum"],
+                "ZScore": d["zscore"],
+            }
+        )
     df_3d = pd.DataFrame(plot_data)
     if not df_3d.empty:
         fig_3d = px.scatter_3d(
-            df_3d, x="Profitability", y="Price", z="Mkt_Cap",
-            color="Profitability", size="Volatility", text="Ticker",
+            df_3d,
+            x="Profitability",
+            y="Price",
+            z="Mkt_Cap",
+            color="Profitability",
+            size="Volatility",
+            text="Ticker",
             color_continuous_scale="RdYlGn",
             title="3D Market Position: Profit vs Value vs Size",
         )
         fig_3d.update_layout(
-            template="plotly_dark", height=800,
-            scene=dict(xaxis_title="Profitability (%)", yaxis_title="Price (USD)", zaxis_title="Market Cap (Billions)"),
+            template="plotly_dark",
+            height=800,
+            scene=dict(
+                xaxis_title="Profitability (%)",
+                yaxis_title="Price (USD)",
+                zaxis_title="Market Cap (Billions)",
+            ),
         )
         st.plotly_chart(fig_3d, use_container_width=True)
-
         st.markdown("### Dispersion Table")
         st.dataframe(df_3d.sort_values("Profitability", ascending=False), use_container_width=True)
-
         st.markdown("### Momentum / Z-Score Scanner")
-        fig_momo = px.bar(df_3d.sort_values("Momentum", ascending=False).head(15), x="Ticker", y="Momentum", color="Momentum")
+        fig_momo = px.bar(
+            df_3d.sort_values("Momentum", ascending=False).head(15),
+            x="Ticker",
+            y="Momentum",
+            color="Momentum",
+        )
         fig_momo.update_layout(template="plotly_dark", height=420)
         st.plotly_chart(fig_momo, use_container_width=True)
 
@@ -1122,41 +1021,44 @@ with tab3:
 
 with tab4:
     st.markdown('<div class="section-title">Risk Management Engineering + Microeconomics Dashboard</div>', unsafe_allow_html=True)
-
     risk_df = build_risk_matrix(market_state, list(market_state.keys()))
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Avg Profitability", f"{risk_df['Profitability'].mean():.2f}%")
     c2.metric("Avg PE", f"{risk_df['PE'].mean():.2f}")
     c3.metric("Avg Beta", f"{risk_df['Beta'].mean():.2f}")
     c4.metric("Avg RiskScore", f"{risk_df['RiskScore'].mean():.2f}")
-
     st.markdown("### Microeconomics")
     micro_cols = st.columns(4)
     micro_cols[0].metric("Consumer Demand", "Stable")
     micro_cols[1].metric("Credit Conditions", "Watch")
     micro_cols[2].metric("Rates Sensitivity", "High")
     micro_cols[3].metric("Labor Pressure", "Moderate")
-
     st.markdown("### Risk Breakdown")
     fig_risk = px.bar(
         risk_df.sort_values("RiskScore", ascending=False).head(12),
-        x="Ticker", y="RiskScore", color="Sector",
+        x="Ticker",
+        y="RiskScore",
+        color="Sector",
     )
     fig_risk.update_layout(template="plotly_dark", height=450)
     st.plotly_chart(fig_risk, use_container_width=True)
-
     st.markdown("### Order Flow + Liquidity Heat Map")
-    flow_df = pd.DataFrame({
-        "Level": ["Bid 1", "Bid 2", "Mid", "Ask 1", "Ask 2"],
-        "Intensity": [0.82, 0.65, 0.48, 0.58, 0.77],
-    })
+    flow_df = pd.DataFrame(
+        {
+            "Level": ["Bid 1", "Bid 2", "Mid", "Ask 1", "Ask 2"],
+            "Intensity": [0.82, 0.65, 0.48, 0.58, 0.77],
+        }
+    )
     flow_matrix = flow_df[["Intensity"]].T
     flow_matrix.columns = flow_df["Level"]
-    fig_flow = px.imshow(flow_matrix, labels=dict(x="Level", y="", color="Intensity"),
-        title="Order Flow / Liquidity Heat Map", aspect="auto")
+    fig_flow = px.imshow(
+        flow_matrix,
+        labels=dict(x="Level", y="", color="Intensity"),
+        title="Order Flow / Liquidity Heat Map",
+        aspect="auto",
+    )
     fig_flow.update_layout(template="plotly_dark", height=300)
     st.plotly_chart(fig_flow, use_container_width=True)
-
     st.markdown("### VaR / Drawdown / Sharpe")
     selected_hist = fetch_history(selected, period="1y")
     if selected_hist is not None and not selected_hist.empty:
@@ -1179,41 +1081,35 @@ with tab5:
     st.markdown('<div class="section-title">Alternative Data Integration</div>', unsafe_allow_html=True)
     alt_df = fetch_alt_data()
     st.dataframe(alt_df, use_container_width=True)
-
-    # Live yFinance trend lines — normalized close prices per alt-data asset
-    st.markdown("### Alternative Data Trends (Live via yFinance)")
-    alt_tickers = alt_df["asset"].unique().tolist() if "asset" in alt_df.columns else ["AAPL", "AMZN", "MSFT"]
-    alt_period = st.selectbox("Period", ["1mo", "3mo", "6mo", "1y"], index=1, key="alt_period_select")
-
-    alt_series: Dict[str, pd.Series] = {}
-    for tkr in alt_tickers:
-        hist_alt = fetch_history(tkr, period=alt_period)
-        if hist_alt is not None and not hist_alt.empty:
-            close = hist_alt.set_index("Date")["Close"]
-            # Normalize to 0-1 so all assets are comparable on the same axis
-            normed = (close - close.min()) / (close.max() - close.min() + 1e-9)
-            alt_series[tkr] = normed
-
-    if alt_series:
-        alt_trend_df = pd.DataFrame(alt_series).reset_index()
-        alt_trend_df = alt_trend_df.rename(columns={"index": "Date"})
-        alt_trend_melted = alt_trend_df.melt(id_vars="Date", var_name="Asset", value_name="Normalized Price")
+    if {"date", "asset", "value"}.issubset(alt_df.columns):
+        alt_df2 = alt_df.copy()
+        alt_df2["date"] = pd.to_datetime(alt_df2["date"], errors="coerce")
         fig_alt = px.line(
-            alt_trend_melted,
-            x="Date",
-            y="Normalized Price",
-            color="Asset",
-            title="Alternative Data Asset Trends (Normalized Close Price via yFinance)",
-            markers=False,
+            alt_df2,
+            x="date",
+            y="value",
+            color="asset",
+            line_group="signal",
+            title="Alternative Data Trends",
         )
-        fig_alt.update_traces(line=dict(width=2))
-        fig_alt.update_layout(
-            template="plotly_dark", height=450,
-            xaxis_title="Date", yaxis_title="Normalized Value (0–1)",
-        )
+        fig_alt.update_layout(template="plotly_dark", height=450)
         st.plotly_chart(fig_alt, use_container_width=True)
-    else:
-        st.warning("No yFinance data available for alt-data tickers.")
+    st.markdown("### Alt-Data Ideas You Can Add")
+    st.write("• Satellite parking-lot counts")
+    st.write("• Web traffic / app ranking")
+    st.write("• ESG or emissions feeds")
+    st.write("• Retail footfall estimates")
+    st.write("• Shipping / port congestion")
+    st.write("• Dark-store pickup demand")
+    st.write("• Mobility / commuting intensity")
+    st.write("• Weather disruption severity")
+    st.markdown("### Input Schema")
+    st.code(
+        "date,source,asset,signal,value\n"
+        "2026-03-20,satellite,AAPL,parking_lot,0.71\n"
+        "2026-03-20,web,AAPL,traffic,0.64",
+        language="text",
+    )
 
 # =========================================================
 # TAB 6: BACKTEST + CORR
@@ -1221,7 +1117,6 @@ with tab5:
 
 with tab6:
     st.markdown('<div class="section-title">Correlation Matrix + Backtesting</div>', unsafe_allow_html=True)
-
     ticker_subset = list(market_state.keys())[:10]
     returns_df = build_correlation_df(ticker_subset, period="3mo")
     if returns_df is not None:
@@ -1229,17 +1124,14 @@ with tab6:
         fig_corr = px.imshow(corr, text_auto=True, title="Return Correlation Matrix")
         fig_corr.update_layout(template="plotly_dark", height=700)
         st.plotly_chart(fig_corr, use_container_width=True)
-
         st.markdown("### Correlation Summary")
         corr_long = corr.stack().reset_index()
         corr_long.columns = ["Ticker1", "Ticker2", "Correlation"]
         st.dataframe(corr_long.sort_values("Correlation", ascending=False), use_container_width=True)
     else:
         st.warning("Not enough price history for correlation matrix.")
-
     backtest_df = fetch_backtest()
     st.dataframe(backtest_df, use_container_width=True)
-
     bt = build_backtest_equity(backtest_df)
     if bt is not None:
         fig_bt = go.Figure()
@@ -1247,11 +1139,14 @@ with tab6:
         fig_bt.add_trace(go.Scatter(x=bt["date"], y=bt["benchmark_equity"], mode="lines", name="Benchmark"))
         fig_bt.update_layout(template="plotly_dark", height=500, title="Equity Curve Backtest")
         st.plotly_chart(fig_bt, use_container_width=True)
-
         c1, c2, c3 = st.columns(3)
         c1.metric("CAGR", f"{compute_cagr(bt['strategy_equity']):.2%}")
         c2.metric("Strategy End Value", f"{bt['strategy_equity'].iloc[-1]:.2f}")
         c3.metric("Benchmark End Value", f"{bt['benchmark_equity'].iloc[-1]:.2f}")
+    st.markdown("### Backtest Setup")
+    st.write("• Signal generate -> paper trade -> compare to benchmark")
+    st.write("• Add transaction costs and slippage later")
+    st.write("• Compute Sharpe, max drawdown, win-rate, CAGR next")
 
 # =========================================================
 # TAB 7: NEWS + FLOW
@@ -1261,7 +1156,6 @@ with tab7:
     st.markdown('<div class="section-title">News Aggregator + Event Flow</div>', unsafe_allow_html=True)
     news_df = fetch_news()
     st.dataframe(news_df, use_container_width=True)
-
     if {"date", "sentiment"}.issubset(news_df.columns):
         nd = news_df.copy()
         nd["date"] = pd.to_datetime(nd["date"], errors="coerce")
@@ -1273,6 +1167,24 @@ with tab7:
         )
         fig_news.update_layout(template="plotly_dark", height=450)
         st.plotly_chart(fig_news, use_container_width=True)
+    st.markdown("### Event Feed")
+    events = [
+        "Rates decision monitoring",
+        "Earnings season watch",
+        "Geo-political escalation tracker",
+        "Liquidity regime scan",
+        "Supply chain stress monitor",
+        "AI capex cycle tracker",
+    ]
+    for e in events:
+        st.write(f"• {e}")
+    st.markdown("### Add Your Own News CSV")
+    st.code(
+        "date,source,title,topic,sentiment\n"
+        "2026-03-20,reuters,Central bank holds rates,macro,neutral\n"
+        "2026-03-20,bloomberg,Tech earnings surprise,earnings,positive",
+        language="text",
+    )
 
 # =========================================================
 # TAB 8: SIGNAL LAB
@@ -1281,7 +1193,6 @@ with tab7:
 with tab8:
     st.markdown('<div class="section-title">Signal Lab</div>', unsafe_allow_html=True)
     st.write("Use this area to test custom score formulas and strategy rules.")
-
     s1, s2, s3, s4 = st.columns(4)
     with s1:
         profit_weight = st.slider("Profitability weight", 0.0, 2.0, 1.0, 0.05, key="signal_profit_weight")
@@ -1291,7 +1202,6 @@ with tab8:
         momentum_weight = st.slider("Momentum weight", 0.0, 2.0, 0.8, 0.05, key="signal_momentum_weight")
     with s4:
         zscore_weight = st.slider("Z-score weight", 0.0, 2.0, 0.4, 0.05, key="signal_zscore_weight")
-
     signal_rows = []
     for ticker, d in market_state.items():
         hist_sl = fetch_history(ticker, period="3mo")
@@ -1305,22 +1215,28 @@ with tab8:
             - risk * risk_weight
             + d["zscore"] * zscore_weight * 0.1
         )
-        signal_rows.append({
-            "Ticker": ticker, "Momentum": momentum, "Risk": risk,
-            "Score": score, "Action": signal_label(score),
-            "Sector": SECTOR_MAP.get(ticker, "Other"),
-        })
-
+        signal_rows.append(
+            {
+                "Ticker": ticker,
+                "Momentum": momentum,
+                "Risk": risk,
+                "Score": score,
+                "Action": signal_label(score),
+                "Sector": SECTOR_MAP.get(ticker, "Other"),
+            }
+        )
     signal_df = pd.DataFrame(signal_rows).sort_values("Score", ascending=False)
     st.dataframe(signal_df, use_container_width=True)
     if not signal_df.empty:
         fig_signal = px.bar(
-            signal_df.head(15), x="Ticker", y="Score", color="Action",
+            signal_df.head(15),
+            x="Ticker",
+            y="Score",
+            color="Action",
             title="Custom Strategy Scores",
         )
         fig_signal.update_layout(template="plotly_dark", height=450)
         st.plotly_chart(fig_signal, use_container_width=True)
-
     st.markdown("### Signal Formula Notes")
     st.write("• Profitability contributes to long bias")
     st.write("• Risk and beta reduce score")
@@ -1334,7 +1250,6 @@ with tab8:
 with tab9:
     st.markdown('<div class="section-title">Financial Press — Live Headlines</div>', unsafe_allow_html=True)
     st.caption("Live RSS headlines from global financial publications. Click any headline to read the full article.")
-
     import xml.etree.ElementTree as ET
     import urllib.request
 
@@ -1355,19 +1270,23 @@ with tab9:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=6) as resp:
                 raw = resp.read()
-            root = ET.fromstring(raw)
-            items = []
-            for item in root.iter("item"):
-                title = item.findtext("title", "").strip()
-                link  = item.findtext("link", "").strip()
-                pub   = item.findtext("pubDate", "").strip()
-                if title and link:
-                    items.append({"title": title, "link": link, "pub": pub})
-            return items[:8]
-        except Exception:
+                root = ET.fromstring(raw)
+                items = []
+                for item in root.iter("item"):
+                    title = item.findtext("title", "").strip()
+                    link = item.findtext("link", "").strip()
+                    pub = item.findtext("pubDate", "").strip()
+                    if title and link:
+                        items.append({"title": title, "link": link, "pub": pub})
+                return items[:8]
+        except Exception as e:
             return []
 
-    selected_feed = st.selectbox("Select publication", [f["name"] for f in RSS_FEEDS], key="press_feed_select")
+    selected_feed = st.selectbox(
+        "Select publication",
+        [f["name"] for f in RSS_FEEDS],
+        key="press_feed_select",
+    )
     chosen_feed = next(f for f in RSS_FEEDS if f["name"] == selected_feed)
 
     if st.button("🔄 Refresh Headlines", key="rss_refresh_btn"):
@@ -1377,23 +1296,17 @@ with tab9:
         articles = fetch_rss(chosen_feed["rss"])
 
     st.markdown(f"### {chosen_feed['emoji']} {chosen_feed['name']} — Latest Headlines")
-
     if articles:
         for art in articles:
             st.markdown(
-                f'''<div style="background:#111; border-left:4px solid {chosen_feed["color"]};
-                    border-radius:6px; padding:12px 16px; margin-bottom:10px;">
-                    <a href="{art["link"]}" target="_blank"
-                       style="color:{chosen_feed["color"]}; font-weight:700;
-                              font-family:'JetBrains Mono',monospace;
-                              font-size:0.95rem; text-decoration:none;">
-                        {art["title"]}
-                    </a>
-                    <div style="color:#555; font-size:0.75rem; margin-top:4px;
-                                font-family:'JetBrains Mono',monospace;">
-                        {art["pub"]}
-                    </div>
-                </div>''',
+                f'''<div style="background:#111; border-left:4px solid {chosen_feed["color"]}; border-radius:6px; padding:12px 16px; margin-bottom:10px;">
+                        <a href="{art["link"]}" target="_blank" style="color:{chosen_feed["color"]}; font-weight:700; font-family:'JetBrains Mono',monospace; font-size:0.95rem; text-decoration:none;">
+                            {art["title"]}
+                        </a>
+                        <div style="color:#555; font-size:0.75rem; margin-top:4px; font-family:'JetBrains Mono',monospace;">
+                            {art["pub"]}
+                        </div>
+                    </div>''',
                 unsafe_allow_html=True,
             )
     else:
@@ -1401,11 +1314,11 @@ with tab9:
             f"Could not load headlines from {selected_feed}. "
             "Some publications block automated requests. Try another source or click Refresh."
         )
-        st.markdown(
-            f'<a href="{chosen_feed["rss"]}" target="_blank" style="color:{chosen_feed["color"]};">→ Open RSS feed directly</a>',
-            unsafe_allow_html=True,
-        )
 
+    st.markdown(
+        f'<a href="{chosen_feed["rss"]}" target="_blank" style="color:{chosen_feed["color"]};">→ Open RSS feed directly</a>',
+        unsafe_allow_html=True,
+    )
     st.markdown("---")
     st.markdown("### All Publications")
     all_cols = st.columns(4)
